@@ -1,4 +1,4 @@
-import type { CustomResolve, SpecifierParts } from './index';
+import type { CustomResolve, SpecifierCandidate, SpecifierParts } from './index';
 import globby from 'globby';
 import ps from 'path';
 
@@ -12,6 +12,15 @@ export interface Options {
      * ```
      */
     extMap?: Record<string, string[]>;
+
+    /**
+     * If import(`./*.js`) is resolved as `./x.ts`,
+     * should we use:
+     * - `import('./x.js')` (as-is),
+     * - `import('x.ts')` (resolved), or
+     * - `import('./x')` (drop)?
+     */
+    forwardExt?: 'drop' | 'resolved' | 'keep-with-test';
 }
 
 const defaultExtMap: Record<string, readonly string[]> = {
@@ -20,6 +29,8 @@ const defaultExtMap: Record<string, readonly string[]> = {
 } as const;
 
 export default function createDefaultResolver(options?: Options): CustomResolve {
+    const forwardExt: NonNullable<Options['forwardExt']> = options?.forwardExt ?? 'keep-with-test';
+
     return (specifierParts: SpecifierParts, fileName: string) => {
         const prefix = specifierParts[0];
         if (prefix === null ||
@@ -38,16 +49,41 @@ export default function createDefaultResolver(options?: Options): CustomResolve 
     
         const candidates = globby.sync(glob, {
             cwd: ps.dirname(fileName),
-        }).map((candidate) => {
-            if (matchedExt) {
+        }).map((resolved): SpecifierCandidate => {
+            let resolvedStem: string;
+            let resolvedExt: string;
+            let testExt: string;
+            if (!matchedExt) {
+                resolvedStem = resolved;
+                testExt = resolvedExt = '';
+            } else {
                 const [src, targets] = matchedExt;
-                const target = targets.find((target) => candidate.toLowerCase().endsWith(target));
-                if (target) {
-                    candidate = `${candidate.substr(0, candidate.length - target.length)}${src}`;
+                const target = targets.find((target) => resolved.toLowerCase().endsWith(target));
+                if (!target) {
+                    resolvedStem = resolved;
+                    testExt = resolvedExt = '';
+                } else {
+                    resolvedStem = resolved.substr(0, resolved.length - target.length);
+                    resolvedExt = target;
+                    testExt = src;
                 }
             }
-            return candidate.startsWith('./') || candidate.startsWith('../') ?
-                candidate : `./${candidate}`;
+
+            const test = keepRelative(`${resolvedStem}${testExt}`);
+
+            let specifier: string;
+            if (forwardExt === 'keep-with-test') {
+                specifier = `${resolvedStem}${testExt}`;
+            } else if (forwardExt === 'resolved') {
+                specifier = `${resolvedStem}${resolvedExt}`;
+            } else {
+                specifier = resolvedStem;
+            }
+
+            return [
+                test,
+                keepRelative(specifier),
+            ];
         });
         if (candidates.length === 0) {
             return;
@@ -61,3 +97,6 @@ function joinExtensions(extensions: readonly string[]) {
     return `.{${extensions.map((ext) => ext.startsWith('.') ? ext.substr(1) : ext).join(',')}}`;
 }
 
+function keepRelative(resolved: string) {
+    return resolved.startsWith('./') || resolved.startsWith('../') ? resolved : `./${resolved}`;
+}
