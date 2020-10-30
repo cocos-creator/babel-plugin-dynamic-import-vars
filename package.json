@@ -1,12 +1,15 @@
 {
   "name": "@cocos/babel-plugin-dynamic-import-vars",
-  "version": "1.0.0",
+  "version": "1.0.1",
   "description": "Babel plugin to route your dynamic import.",
   "main": "lib/index.js",
+  "files": [
+    "lib"
+  ],
   "homepage": "http://www.cocos.com",
   "scripts": {
     "build": "tsc",
-    "prepublish": "npm run build"
+    "prepublishOnly": "npm run build"
   },
   "author": "",
   "license": "MIT",
