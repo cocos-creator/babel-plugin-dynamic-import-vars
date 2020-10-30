@@ -7,13 +7,15 @@ import type { Options as DefaultResolveOptions } from './default-resolve';
 
 export type { SpecifierParts };
 
+export type SpecifierCandidate = string | [string, string];
+
 /**
  * Custom specifier resolution.
  * @param specifierParts Specifier parts.
  * @param fileName The source file name(provided by babel).
  * @returns If `undefined` or empty array is returned, this plugin won't do nothing.
  */
-export type CustomResolve = (specifierParts: SpecifierParts, fileName: string) => string[] | undefined;
+export type CustomResolve = (specifierParts: SpecifierParts, fileName: string) => SpecifierCandidate[] | undefined;
 
 export type { DefaultResolveOptions };
 
@@ -80,16 +82,29 @@ export default function({ types }: typeof babel): babel.PluginObj<{
 
                 const specifierArg = () => types.identifier('path');
 
+                const candidateSwitchCases = candidates.map((candidate) => {
+                    let test: string;
+                    let specifier: string;
+                    if (Array.isArray(candidate)) {
+                        test = candidate[0];
+                        specifier = candidate[1];
+                    } else {
+                        test = candidate;
+                        specifier = candidate;
+                    }
+                    return types.switchCase(
+                        types.stringLiteral(test),
+                        [types.returnStatement(types.callExpression(
+                            createImport(), [types.stringLiteral(specifier)]))],
+                    )
+                });
+
                 const lambda = types.parenthesizedExpression(
                     types.arrowFunctionExpression(
                         [specifierArg()],
                         types.blockStatement([types.switchStatement(
                             specifierArg(),
-                            candidates.map((path) => types.switchCase(
-                                types.stringLiteral(path),
-                                [types.returnStatement(types.callExpression(
-                                    createImport(), [types.stringLiteral(path)]))],
-                            )).concat([types.switchCase(
+                            candidateSwitchCases.concat([types.switchCase(
                                 null,
                                 [types.returnStatement(types.callExpression(
                                     createImport(), [specifierArg()]))],
